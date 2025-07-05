@@ -1,0 +1,21 @@
+# Core dependencies
+cryptography>=42.0.5
+pyjwt>=2.8.0
+bcrypt>=4.0.1
+psutil>=5.9.0
+
+# LLM providers
+google-generativeai>=0.3.0
+openai>=1.6.0
+tenacity>=8.2.0
+
+# Vector Store
+chromadb>=0.4.0
+numpy>=1.24.0
+
+# CLI
+click>=8.1.0
+
+# Asyncio (standard library, but including if a specific version is needed or for clarity)
+# asyncio is typically part of Python's standard library. If a specific backport/polyfill is used,
+# it would be listed here. For general Python 3.9+, it's built-in.
