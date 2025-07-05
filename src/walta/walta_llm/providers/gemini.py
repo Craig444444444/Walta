@@ -1,90 +1,173 @@
-"""
-Google Gemini LLM Provider Implementation.
-"""
-
+# src/walta/walta_llm/providers/gemini.py
 import os
-import logging
-from typing import List, Optional, Dict, Any
 import google.generativeai as genai
-from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Dict, Any, List, Optional, Union
 
-from . import LLMProviderProtocol, ProviderError
-
-logger = logging.getLogger(__name__)
+# Import from the base module within the same package
+from .base import LLMProviderProtocol, LLMGenerationError, ChatMessage
 
 class GeminiProvider(LLMProviderProtocol):
-    """Google Gemini implementation of LLM provider."""
-    
-    def __init__(self, model: str = "gemini-pro"):
-        self.model = model
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        self.client = genai.GenerativeModel(model)
-        self.embedding_model = genai.GenerativeModel("embedding-001")
+    """
+    A concrete implementation of LLMProviderProtocol for Google Gemini API.
+    """
+    def __init__(self, api_key: str = None, model: str = "gemini-pro", **kwargs: Any):
+        if api_key is None:
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "Gemini API key not provided. "
+                    "Please pass it as an argument or set the GEMINI_API_KEY environment variable."
+                )
         
-        if not os.getenv("GOOGLE_API_KEY"):
-            logger.warning("GOOGLE_API_KEY environment variable not set")
-        logger.info(f"GeminiProvider initialized with model {model}")
+        genai.configure(api_key=api_key)
+        self.model_name = model
+        self.model = genai.GenerativeModel(model_name=self.model_name)
+        self.default_params = kwargs
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get embedding vector using Gemini."""
+    def generate_text(self, prompt: str, **kwargs: Any) -> str:
+        """
+        Generates text using Google Gemini's model.
+
+        Args:
+            prompt (str): The input prompt.
+            **kwargs: Overrides for default model parameters (e.g., temperature, max_output_tokens, stop_sequences).
+
+        Returns:
+            str: The generated text.
+
+        Raises:
+            LLMGenerationError: If the API call fails.
+        """
+        combined_params = {**self.default_params, **kwargs}
+        generation_config = genai.GenerationConfig(
+            temperature=combined_params.get("temperature", 0.7),
+            max_output_tokens=combined_params.get("max_tokens", 1000), # Gemini uses max_output_tokens
+            stop_sequences=combined_params.get("stop_sequences", []),
+            top_p=combined_params.get("top_p", 1.0),
+            top_k=combined_params.get("top_k", 0)
+        )
         try:
-            response = await self.embedding_model.embed_content(
-                model="embedding-001",
-                content=text,
+            response = self.model.generate_content(
+                contents=[prompt],
+                generation_config=generation_config
             )
-            logger.debug(f"Generated embedding of dimension {len(response.embedding)}")
-            return response.embedding
+            return response.text
+        except genai.APIError as e:
+            raise LLMGenerationError(f"Gemini API error: {e}", original_exception=e)
         except Exception as e:
-            logger.error(f"Gemini embedding failed: {e}")
-            raise ProviderError(f"Gemini embedding failed: {e}")
+            raise LLMGenerationError(f"An unexpected error occurred during Gemini generation: {e}", original_exception=e)
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
-    async def get_completion(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1000
-    ) -> str:
-        """Get completion from Gemini."""
+    def generate_chat_completion(self, messages: List[ChatMessage], **kwargs: Any) -> str:
+        """
+        Generates a chat completion using Google Gemini's chat capabilities.
+
+        Args:
+            messages (List[ChatMessage]): A list of chat messages.
+            **kwargs: Overrides for default model parameters.
+
+        Returns:
+            str: The generated response.
+
+        Raises:
+            LLMGenerationError: If the API call fails.
+        """
+        combined_params = {**self.default_params, **kwargs}
+        generation_config = genai.GenerationConfig(
+            temperature=combined_params.get("temperature", 0.7),
+            max_output_tokens=combined_params.get("max_tokens", 1000),
+            stop_sequences=combined_params.get("stop_sequences", []),
+            top_p=combined_params.get("top_p", 1.0),
+            top_k=combined_params.get("top_k", 0)
+        )
         try:
-            response = await self.client.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": temperature,
-                    "max_output_tokens": max_tokens
-                }
-            )
-            completion = response.text
-            logger.debug(f"Generated completion of length {len(completion)}")
-            return completion
-        except Exception as e:
-            logger.error(f"Gemini completion failed: {e}")
-            raise ProviderError(f"Gemini completion failed: {e}")
+            # Gemini's chat history format expects roles like 'user' and 'model'
+            # Adjusting input messages to fit Gemini's expected format if necessary
+            formatted_messages = []
+            for msg in messages:
+                if msg["role"] == "assistant":
+                    formatted_messages.append({"role": "model", "parts": [msg["content"]]})
+                else:
+                    formatted_messages.append({"role": msg["role"], "parts": [msg["content"]]})
 
-    async def get_multimodal_analysis(
-        self,
-        text: str,
-        image: Optional[bytes] = None
-    ) -> str:
-        """Get multimodal analysis using Gemini Pro Vision."""
+            chat_session = self.model.start_chat(history=formatted_messages[:-1])
+            response = chat_session.send_message(formatted_messages[-1]["parts"][0], generation_config=generation_config)
+            return response.text
+        except genai.APIError as e:
+            raise LLMGenerationError(f"Gemini API error: {e}", original_exception=e)
+        except Exception as e:
+            raise LLMGenerationError(f"An unexpected error occurred during Gemini chat completion: {e}", original_exception=e)
+
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """
+        Returns the current model and default parameters.
+
+        Returns:
+            Dict[str, Any]: A dictionary of model parameters.
+        """
+        return {"model": self.model_name, **self.default_params}
+
+    def count_tokens(self, text: str) -> int:
+        """
+        Counts the number of tokens in a given text string using Gemini's API.
+
+        Args:
+            text (str): The text string to tokenize.
+
+        Returns:
+            int: The number of tokens in the text.
+
+        Raises:
+            LLMGenerationError: If token counting fails.
+        """
         try:
-            if image is None:
-                return await self.get_completion(text)
-
-            vision_model = genai.GenerativeModel("gemini-pro-vision")
-            response = await vision_model.generate_content(
-                [text, {"mime_type": "image/jpeg", "data": image}]
-            )
-            analysis = response.text
-            logger.debug(f"Generated multimodal analysis of length {len(analysis)}")
-            return analysis
+            response = self.model.count_tokens(contents=[text])
+            return response.total_tokens
+        except genai.APIError as e:
+            raise LLMGenerationError(f"Gemini API error during token counting: {e}", original_exception=e)
         except Exception as e:
-            logger.error(f"Gemini multimodal analysis failed: {e}")
-            raise ProviderError(f"Gemini multimodal analysis failed: {e}")
+            raise LLMGenerationError(f"An unexpected error occurred during Gemini token counting: {e}", original_exception=e)
+
+    def get_multimodal_analysis(self, text: str, image: Optional[bytes] = None) -> str:
+        """
+        Performs multimodal analysis (text and optional image) using Gemini's capabilities.
+        Note: This requires a Gemini model capable of multimodal input (e.g., 'gemini-pro-vision').
+
+        Args:
+            text (str): The text prompt.
+            image (Optional[bytes]): The image data as bytes.
+
+        Returns:
+            str: The analysis result.
+
+        Raises:
+            LLMGenerationError: If the API call fails or model does not support multimodal.
+        """
+        if not image and text:
+            # If only text, defer to generate_text
+            return self.generate_text(text)
+        elif not image:
+            raise LLMGenerationError("Image is required for multimodal analysis if text is empty.")
+        
+        # This part assumes a model like 'gemini-pro-vision' is used for multimodal
+        # The 'gemini-pro' model specified in __init__ does not support image input directly.
+        # You would need to instantiate a different model for this if the base model is not multimodal.
+        # For this example, we'll assume the self.model is set up for it, or handle specific model.
+        
+        try:
+            from PIL import Image
+            import io
+            
+            # Load the image from bytes
+            img = Image.open(io.BytesIO(image))
+            
+            # Gemini's generate_content can take a list of parts, including text and images
+            contents = [text, img] if text else [img]
+            
+            response = self.model.generate_content(contents=contents)
+            return response.text
+        except genai.APIError as e:
+            raise LLMGenerationError(f"Gemini API error during multimodal analysis: {e}", original_exception=e)
+        except ImportError:
+            raise LLMGenerationError("Pillow (PIL) library is required for image processing in multimodal analysis. Please install it (`pip install Pillow`).")
+        except Exception as e:
+            raise LLMGenerationError(f"An unexpected error occurred during Gemini multimodal analysis: {e}", original_exception=e)
