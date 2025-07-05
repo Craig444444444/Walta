@@ -1,49 +1,82 @@
-# File: src/walta/walta_llm/providers/base.py
-# This file defines the base LLM provider class and configuration dataclasses.
+# src/walta/walta_llm/providers/base.py
+import abc
+from typing import Protocol, Dict, Any, List, TypedDict
 
-from typing import List, Dict, Any, Optional, Union
-from dataclasses import dataclass, field
+class LLMGenerationError(Exception):
+    """
+    Custom exception for errors during LLM text generation.
+    This can wrap an underlying API error for more unified handling.
+    """
+    def __init__(self, message: str, original_exception: Exception = None):
+        super().__init__(message)
+        self.original_exception = original_exception
 
-@dataclass
-class GenerationConfig:
-    """
-    Configuration for text generation.
-    Matches parameters in LLMProviderProtocol's get_completion.
-    """
-    temperature: float = 0.7
-    max_tokens: int = 1000
-    # Add other parameters if needed, but stick to protocol for now
+class ChatMessage(TypedDict):
+    role: str
+    content: str
 
-@dataclass
-class EmbedConfig:
+class LLMProviderProtocol(Protocol):
     """
-    Configuration for text embeddings.
+    A protocol defining the interface for all Large Language Model (LLM) providers.
+    Any class implementing this protocol must provide the specified methods
+    and adhere to their signatures.
     """
-    model: str = "embedding-001"
 
-class LLMProvider:
-    """
-    Abstract base class for LLM providers.
-    Concrete providers (like OpenAIProvider, GeminiProvider) should inherit from this
-    and implement the methods defined in LLMProviderProtocol.
-    """
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    @abc.abstractmethod
+    def generate_text(self, prompt: str, **kwargs: Any) -> str:
+        """
+        Generates text based on a given prompt.
 
-    async def get_embedding(self, text: str) -> List[float]:
-        raise NotImplementedError("This method must be implemented by subclasses.")
-    
-    async def get_completion(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1000
-    ) -> str:
-        raise NotImplementedError("This method must be implemented by subclasses.")
-    
-    async def get_multimodal_analysis(
-        self,
-        text: str,
-        image: Optional[bytes] = None
-    ) -> str:
-        raise NotImplementedError("This method must be implemented by subclasses.")
+        Args:
+            prompt (str): The input prompt for text generation.
+            **kwargs: Additional keyword arguments specific to the LLM provider
+                      (e.g., temperature, max_tokens, stop_sequences).
+
+        Returns:
+            str: The generated text.
+
+        Raises:
+            LLMGenerationError: If an error occurs during text generation.
+        """
+        ... # Ellipsis indicates an abstract method with no implementation
+
+    @abc.abstractmethod
+    def generate_chat_completion(self, messages: List[ChatMessage], **kwargs: Any) -> str:
+        """
+        Generates a chat completion based on a list of chat messages.
+
+        Args:
+            messages (List[ChatMessage]): A list of chat messages, each with a 'role' and 'content'.
+            **kwargs: Additional keyword arguments specific to the LLM provider.
+
+        Returns:
+            str: The generated response from the chat model.
+
+        Raises:
+            LLMGenerationError: If an error occurs during chat completion.
+        """
+        ...
+
+    @abc.abstractmethod
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary of parameters for the LLM model.
+        This could include model name, default temperature, max tokens, etc.
+
+        Returns:
+            Dict[str, Any]: A dictionary of model parameters.
+        """
+        ...
+
+    @abc.abstractmethod
+    def count_tokens(self, text: str) -> int:
+        """
+        Counts the number of tokens in a given text string.
+
+        Args:
+            text (str): The text string to tokenize.
+
+        Returns:
+            int: The number of tokens in the text.
+        """
+        ...
