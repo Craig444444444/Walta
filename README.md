@@ -1,1 +1,48 @@
-# Walta
+# Walta Framework
+
+A secure, AI-driven framework for enterprise applications, featuring advanced LLM integration, robust security, and vector storage capabilities.
+
+![Walta Framework](docs/images/walta-logo.png)
+
+![Build Status](https://github.com/Craig444444444/Walta/workflows/CI/badge.svg)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-0.7.0-green.svg)
+
+## Features
+
+### Core Security & Session Management
+- 🔒 Advanced cryptographic operations with quantum-resistant algorithms
+- 🚦 Intelligent rate limiting and DDoS protection
+- 🎫 Secure session management with auto-expiration
+- 📊 Real-time security metrics and monitoring
+
+### AI Integration
+- 🤖 Multiple LLM provider support
+  - OpenAI (GPT-4, GPT-4V)
+  - Google Gemini (Pro, Pro Vision)
+- 🔄 Automatic provider fallback
+- 🎯 Content safety checks and filtering
+- 📈 Performance metrics and optimization
+
+### Vector Storage
+- 📁 Efficient similarity search via ChromaDB
+- 💾 Persistent storage with automatic backups
+- 🏷️ Rich metadata management
+- 📊 Vector space analytics
+
+### Development Tools
+- 🛠️ Comprehensive CLI interface
+- 📝 Detailed logging and monitoring
+- 🧪 Extensive test coverage
+- 📚 Auto-generated documentation
+
+## Quick Start
+
+### Installation
+
+```bash
+# Using pip
+pip install walta
+
+# Using Poetry
+poetry add walta# Walta
