@@ -1,100 +1,107 @@
-"""
-OpenAI LLM Provider Implementation.
-"""
-
+# src/walta/walta_llm/providers/openai.py
 import os
-import logging
-from typing import List, Optional, Dict, Any
 import openai
-from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Dict, Any, List
 
-from . import LLMProviderProtocol, ProviderError
-
-logger = logging.getLogger(__name__)
+# Import from the base module within the same package
+from .base import LLMProviderProtocol, LLMGenerationError, ChatMessage
 
 class OpenAIProvider(LLMProviderProtocol):
-    """OpenAI implementation of LLM provider."""
-    
-    def __init__(self, model: str = "gpt-4"):
+    """
+    A concrete implementation of LLMProviderProtocol for OpenAI's API.
+    """
+    def __init__(self, api_key: str = None, model: str = "gpt-3.5-turbo", **kwargs: Any):
+        if api_key is None:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError(
+                    "OpenAI API key not provided. "
+                    "Please pass it as an argument or set the OPENAI_API_KEY environment variable."
+                )
+        openai.api_key = api_key
         self.model = model
-        openai.api_key = os.getenv("OPENAI_API_KEY")
-        if not openai.api_key:
-            logger.warning("OPENAI_API_KEY environment variable not set")
-        logger.info(f"OpenAIProvider initialized with model {model}")
+        self.client = openai.OpenAI(api_key=api_key)
+        self.default_params = kwargs
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get embedding vector for text."""
-        try:
-            response = await openai.Embedding.acreate(
-                input=text,
-                model="text-embedding-ada-002"
-            )
-            logger.debug(f"Generated embedding of dimension {len(response['data'][0]['embedding'])}")
-            return response['data'][0]['embedding']
-        except Exception as e:
-            logger.error(f"OpenAI embedding failed: {e}")
-            raise ProviderError(f"OpenAI embedding failed: {e}")
+    def generate_text(self, prompt: str, **kwargs: Any) -> str:
+        """
+        Generates text using OpenAI's completion API.
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10)
-    )
-    async def get_completion(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1000
-    ) -> str:
-        """Get completion from OpenAI."""
+        Args:
+            prompt (str): The input prompt.
+            **kwargs: Overrides for default model parameters.
+
+        Returns:
+            str: The generated text.
+
+        Raises:
+            LLMGenerationError: If the API call fails.
+        """
+        messages = [{"role": "user", "content": prompt}]
+        return self.generate_chat_completion(messages, **kwargs)
+
+    def generate_chat_completion(self, messages: List[ChatMessage], **kwargs: Any) -> str:
+        """
+        Generates a chat completion using OpenAI's chat completion API.
+
+        Args:
+            messages (List[ChatMessage]): A list of chat messages.
+            **kwargs: Overrides for default model parameters.
+
+        Returns:
+            str: The generated response.
+
+        Raises:
+            LLMGenerationError: If the API call fails.
+        """
+        params = {**self.default_params, **kwargs}
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens
+                messages=messages,
+                **params
             )
-            completion = response.choices[0].message.content
-            logger.debug(f"Generated completion of length {len(completion)}")
-            return completion
+            # Accessing the content from the first choice
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                return response.choices[0].message.content
+            else:
+                raise LLMGenerationError("OpenAI API returned an empty or malformed response.")
+        except openai.APIError as e:
+            raise LLMGenerationError(f"OpenAI API error: {e}", original_exception=e)
         except Exception as e:
-            logger.error(f"OpenAI completion failed: {e}")
-            raise ProviderError(f"OpenAI completion failed: {e}")
+            raise LLMGenerationError(f"An unexpected error occurred during OpenAI generation: {e}", original_exception=e)
 
-    async def get_multimodal_analysis(
-        self,
-        text: str,
-        image: Optional[bytes] = None
-    ) -> str:
-        """Get multimodal analysis from GPT-4V."""
+    def get_model_parameters(self) -> Dict[str, Any]:
+        """
+        Returns the current model and default parameters.
+
+        Returns:
+            Dict[str, Any]: A dictionary of model parameters.
+        """
+        return {"model": self.model, **self.default_params}
+
+    def count_tokens(self, text: str) -> int:
+        """
+        Counts the number of tokens in a given text string using a simple heuristic
+        or an actual tokenizer if available. For a more accurate count,
+        OpenAI recommends `tiktoken`. We'll implement a placeholder.
+
+        Args:
+            text (str): The text string to tokenize.
+
+        Returns:
+            int: The estimated number of tokens.
+        """
+        # A simple approximation. For production, consider using OpenAI's tiktoken library.
+        # pip install tiktoken
         try:
-            if image is None:
-                return await self.get_completion(text)
-            
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-4-vision-preview",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": text},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image.decode()}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=1000
-            )
-            analysis = response.choices[0].message.content
-            logger.debug(f"Generated multimodal analysis of length {len(analysis)}")
-            return analysis
-        except Exception as e:
-            logger.error(f"OpenAI multimodal analysis failed: {e}")
-            raise ProviderError(f"OpenAI multimodal analysis failed: {e}")
+            import tiktoken
+            encoding = tiktoken.encoding_for_model(self.model)
+            return len(encoding.encode(text))
+        except ImportError:
+            # Fallback to a character-based estimate if tiktoken is not installed
+            # This is a very rough estimate; actual token count will vary.
+            return len(text.split()) * 4 // 3 # Rough estimate: 4 chars per token, or 3/4 word per token
+        except Exception:
+            # Fallback for models not supported by tiktoken or other issues
+            return len(text.split()) * 4 // 3
