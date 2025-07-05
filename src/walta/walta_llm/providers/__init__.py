@@ -1,63 +1,28 @@
-# File: src/walta/walta_llm/providers/__init__.py
-# THIS FILE MUST BE RENAMED TO __init__.py FROM __init__.
-# This content combines your LLMProviderProtocol definition with necessary imports and __all__ exports.
-
+# src/walta/walta_llm/providers/__init__.py
 """
 Walta LLM Providers - Contains implementations for different LLM APIs.
 """
 
-from typing import Protocol, List, Dict, Any, Optional, Union
+# Import base classes, protocol, and error classes from base.py
+# These are the foundational elements, so they come first.
+from .base import (
+    LLMProvider,
+    LLMProviderProtocol,
+    LLMGenerationError # Renamed from LLMError, ProviderError, etc. for simplicity
+)
 
-# Import base classes and configs from base.py
-from .base import LLMProvider, GenerationConfig, EmbedConfig
 # Import concrete provider implementations
+# These depend on elements from base.py, so they are imported after base.py is ready.
 from .openai import OpenAIProvider
 from .gemini import GeminiProvider
 
 
-class LLMProviderProtocol(Protocol):
-    """Protocol for LLM providers."""
-    async def get_embedding(self, text: str) -> List[float]: ...
-    
-    async def get_completion(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        max_tokens: int = 1000
-    ) -> str: ...
-    
-    async def get_multimodal_analysis(
-        self,
-        text: str,
-        image: Optional[bytes] = None
-    ) -> str: ...
-
-class LLMError(Exception):
-    """Base exception for LLM-related errors."""
-    pass
-
-class ProviderError(LLMError):
-    """Exception for provider-specific errors."""
-    pass
-
-class EmbeddingError(LLMError):
-    """Exception for embedding-related errors."""
-    pass
-
-class CompletionError(LLMError):
-    """Exception for completion-related errors."""
-    pass
-
 # Ensure all necessary components are exposed for external imports
+# This list controls what gets imported when someone does `from walta.walta_llm.providers import *`
 __all__ = [
+    "LLMProvider",
     "LLMProviderProtocol",
-    "LLMError",
-    "ProviderError",
-    "EmbeddingError",
-    "CompletionError",
-    "LLMProvider",      # From base.py
-    "GenerationConfig", # From base.py
-    "EmbedConfig",      # From base.py
+    "LLMGenerationError", # Re-export the unified error class
     "OpenAIProvider",
     "GeminiProvider"
 ]
