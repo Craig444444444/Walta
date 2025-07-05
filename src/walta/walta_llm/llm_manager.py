@@ -1,16 +1,19 @@
+# src/walta/walta_llm/llm_manager.py
 """
 Walta LLM Manager - High-level interface for LLM operations.
 """
 
 import time
 import asyncio
-import logging
-from typing import Any, Dict, Optional
+import logging # Explicitly import logging here
+from typing import Any, Dict, Optional, List # Added List for ChatMessage types
 from datetime import datetime
 
-from .providers import LLMProviderProtocol
+# Assuming LLMProviderProtocol and LLMGenerationError are available via __init__.py
+from .providers import LLMProviderProtocol, LLMGenerationError # Added LLMGenerationError
 from .providers.openai import OpenAIProvider
 from .providers.gemini import GeminiProvider
+from .providers.base import ChatMessage # Import ChatMessage type from base
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +24,10 @@ class ModelFactory:
     def create_provider(provider: str = "gemini", model: str = None) -> LLMProviderProtocol:
         """Create an LLM provider instance."""
         if provider.lower() == "openai":
-            return OpenAIProvider(model or "gpt-4")
+            # Pass kwargs directly to provider constructor if needed, e.g., api_key
+            return OpenAIProvider(model=model or "gpt-4")
         elif provider.lower() == "gemini":
-            return GeminiProvider(model or "gemini-pro")
+            return GeminiProvider(model=model or "gemini-pro")
         else:
             raise ValueError(f"Unknown LLM provider: {provider}")
 
@@ -59,18 +63,20 @@ class WaltaLLM:
         result_content = ""
         
         try:
+            # Calls get_multimodal_analysis which is now in LLMProviderProtocol
             result_content = await self.primary.get_multimodal_analysis(text, image)
-        except Exception as e:
+        except LLMGenerationError as e: # Catch specific LLMGenerationError
             logger.warning(
                 f"Primary LLM provider ({self.primary_provider_name}) failed: {e}"
             )
             if use_fallback:
                 provider_used = self.fallback_provider_name
                 try:
+                    # Calls get_multimodal_analysis which is now in LLMProviderProtocol
                     result_content = await self.fallback.get_multimodal_analysis(
                         text, image
                     )
-                except Exception as fallback_e:
+                except LLMGenerationError as fallback_e: # Catch specific LLMGenerationError
                     logger.error(
                         f"Fallback LLM provider ({self.fallback_provider_name}) "
                         f"also failed: {fallback_e}"
@@ -80,6 +86,9 @@ class WaltaLLM:
                     ) from fallback_e
             else:
                 raise
+        except Exception as e: # Catch any other unexpected errors
+            logger.error(f"An unexpected error occurred with {self.primary_provider_name}: {e}")
+            raise
 
         return {
             "result": result_content,
@@ -96,7 +105,7 @@ class WaltaLLM:
 
     async def get_embedding(
         self,
-        text: str,
+        text: str, # Changed type hint to str for consistency as per get_embedding signature in WaltaLLM
         use_fallback: bool = True
     ) -> Dict[str, Any]:
         """Get embeddings with fallback support."""
@@ -105,8 +114,9 @@ class WaltaLLM:
         vector_data = []
         
         try:
+            # Calls get_embedding which is now in LLMProviderProtocol
             vector_data = await self.primary.get_embedding(text)
-        except Exception as e:
+        except LLMGenerationError as e: # Catch specific LLMGenerationError
             logger.warning(
                 f"Primary LLM provider ({self.primary_provider_name}) "
                 f"embedding failed: {e}"
@@ -114,8 +124,9 @@ class WaltaLLM:
             if use_fallback:
                 provider_used = self.fallback_provider_name
                 try:
+                    # Calls get_embedding which is now in LLMProviderProtocol
                     vector_data = await self.fallback.get_embedding(text)
-                except Exception as fallback_e:
+                except LLMGenerationError as fallback_e: # Catch specific LLMGenerationError
                     logger.error(
                         f"Fallback LLM provider ({self.fallback_provider_name}) "
                         f"embedding also failed: {fallback_e}"
@@ -125,6 +136,9 @@ class WaltaLLM:
                     ) from fallback_e
             else:
                 raise
+        except Exception as e: # Catch any other unexpected errors
+            logger.error(f"An unexpected error occurred with {self.primary_provider_name} during embedding: {e}")
+            raise
 
         return {
             "vector": vector_data,
@@ -134,7 +148,7 @@ class WaltaLLM:
             "request_id": f"emb_{int(time.time()*1000)}",
             "metadata": {
                 "text_length": len(text),
-                "vector_dimension": len(vector_data),
+                "vector_dimension": len(vector_data), # This assumes vector_data is List[float] or List[List[float]]
                 "fallback_enabled": use_fallback
             }
         }
