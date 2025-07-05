@@ -3,6 +3,7 @@
 
 import abc
 from typing import Protocol, Dict, Any, List, TypedDict, Optional, Union
+from dataclasses import dataclass # <--- ADD THIS LINE
 
 class LLMGenerationError(Exception):
     """
@@ -73,7 +74,7 @@ class LLMProviderProtocol(Protocol):
 
 
 # --- Configuration Dataclasses (keep these) ---
-@dataclass # Assuming you want to keep these for broader configuration, though not directly used in the protocol methods
+@dataclass # Now dataclass is imported!
 class GenerationConfig:
     """Configuration for text generation."""
     temperature: float = 0.7
